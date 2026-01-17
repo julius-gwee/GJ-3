@@ -32,7 +32,7 @@ const defaults = {
   llmEndpoint: 'https://api.openai.com/v1/chat/completions',
   llmModel: 'gpt-4o-mini',
   llmMode: 'openai',
-  llmApiKey: ''
+  llmApiKey: '' // Load from environment variable or user settings
 };
 
 const state = {
@@ -271,8 +271,141 @@ function fallbackParseJobWrapper(rawText, url, scrapedData) {
 }
 
 // --- LLM tailoring + diffing ---
+
+/**
+ * Extract key requirements and skills from job description
+ * @param {string} jobDescription - The full job description text
+ * @returns {Object} Contains requirements, skills, and qualifications
+ */
+function extractJobRequirements(jobDescription) {
+  const requirements = [];
+  const skills = [];
+  
+  // Extract "Required" section
+  const requiredMatch = jobDescription.match(/(?:required|must have|required skills|key qualifications)[\s\n:]*([\s\S]*?)(?:\n\n|$|preferred|nice to have|additional)/i);
+  if (requiredMatch) {
+    const requiredSection = requiredMatch[1];
+    const bulletPoints = requiredSection.match(/[-•*]\s*(.+?)(?=\n[-•*]|\n\n|$)/gi) || [];
+    bulletPoints.forEach(point => {
+      const cleaned = point.replace(/^[-•*]\s*/, '').trim();
+      if (cleaned) requirements.push(cleaned);
+    });
+  }
+  
+  // Extract skill keywords (common tech terms, programming languages, tools)
+  const skillPatterns = [
+    /(?:experience with|proficiency in|knowledge of|familiar with|expertise in)\s+(.+?)(?:\.|,|;|\n)/gi,
+    /(?:skills?|technologies?|tools?|frameworks?|languages?)[:\s]+([^.]+)/gi
+  ];
+  
+  skillPatterns.forEach(pattern => {
+    const matches = jobDescription.matchAll(pattern);
+    for (const match of matches) {
+      const skillText = match[1];
+      const skillList = skillText.split(/[,;]/).map(s => s.trim()).filter(s => s);
+      skills.push(...skillList);
+    }
+  });
+  
+  // Extract preferred skills/qualifications
+  const preferredMatch = jobDescription.match(/(?:preferred|nice to have|additional qualifications)[\s\n:]*([\s\S]*?)(?:\n\n|$)/i);
+  const preferred = [];
+  if (preferredMatch) {
+    const preferredSection = preferredMatch[1];
+    const bulletPoints = preferredSection.match(/[-•*]\s*(.+?)(?=\n[-•*]|\n\n|$)/gi) || [];
+    bulletPoints.forEach(point => {
+      const cleaned = point.replace(/^[-•*]\s*/, '').trim();
+      if (cleaned) preferred.push(cleaned);
+    });
+  }
+  
+  return {
+    requirements: [...new Set(requirements)].slice(0, 8),
+    skills: [...new Set(skills)].slice(0, 10),
+    preferred: [...new Set(preferred)].slice(0, 5),
+    fullDescription: jobDescription
+  };
+}
+
+/**
+ * Build an enhanced prompt for OpenAI that focuses on matching resume to job requirements
+ * Includes structured analysis of key skills, requirements, and experience alignment
+ * @param {string} resumeText - The original resume
+ * @param {Object} job - Job details (title, company, description, additional)
+ * @returns {string} Crafted prompt optimized for OpenAI's GPT-4o-mini
+ */
+function buildEnhancedPrompt(resumeText, job) {
+  const jobRequirements = extractJobRequirements(job.description);
+  
+  const requirementsList = jobRequirements.requirements
+    .map((req, idx) => `  ${idx + 1}. ${req}`)
+    .join('\n');
+    
+  const skillsList = jobRequirements.skills
+    .map(skill => `  - ${skill}`)
+    .join('\n');
+    
+  const preferredList = jobRequirements.preferred.length > 0
+    ? `\n\nPreferred qualifications:\n${jobRequirements.preferred.map(pref => `  - ${pref}`).join('\n')}`
+    : '';
+  
+  return `You are an expert resume writer specializing in tailoring resumes to job postings.
+
+ORIGINAL RESUME:
+${resumeText}
+
+POSITION DETAILS:
+- Role: ${job.title}
+- Company: ${job.company}
+${job.url ? `- URL: ${job.url}` : ''}
+
+KEY REQUIREMENTS TO ADDRESS (PRIORITY):
+${requirementsList}
+
+REQUIRED SKILLS & TECHNOLOGIES:
+${skillsList}${preferredList}
+
+COMPANY CONTEXT:
+${job.additional || '(No additional context provided)'}
+
+INSTRUCTIONS:
+1. Analyze each key requirement and identify matching experience in the resume
+2. Rewrite sections to emphasize relevant skills and experience
+3. Use terminology and keywords from the job description where truthful
+4. Reorganize bullet points to highlight most relevant experience first
+5. Maintain truthfulness - do NOT invent roles, companies, degrees, dates, or achievements
+6. Preserve the overall structure and professional tone
+7. Make each bullet point impactful and achievement-focused
+8. Remove or de-emphasize less relevant experience
+9. Highlight transferable skills that align with the role
+
+OUTPUT:
+Return ONLY the tailored resume text. No explanations or markdown formatting.`;
+}
+
+/**
+ * Build a system message for OpenAI with clear instructions
+ * @returns {string} System message for GPT assistant
+ */
+function buildSystemMessage() {
+  return `You are an expert resume writer and recruiter with over 15 years of experience. Your expertise includes:
+- Identifying key qualifications and skills from job descriptions
+- Highlighting relevant candidate experience to match job requirements
+- Maintaining truthfulness and ethical standards in resume tailoring
+- Using strong action verbs and achievement-focused language
+- Understanding industry-specific terminology and best practices
+
+Your goal is to tailor resumes to job descriptions by strategically emphasizing the most relevant experience and skills while always remaining truthful. Never invent information, but do reorganize and reframe existing content to best match the target role.`;
+}
+
+/**
+ * Build a legacy prompt for backward compatibility
+ * @param {string} resumeText - The original resume
+ * @param {Object} job - Job details (title, company, description, additional)
+ * @returns {string} Crafted prompt for LLM
+ */
 function buildPrompt(resumeText, job) {
-  return `Resume:\n${resumeText}\n\nJob description:\n${job.description}\n\nCompany: ${job.company}\nRole: ${job.title}\nURL: ${job.url}\nAdditional context:\n${job.additional}\n\nInstructions:\n- Tailor the resume to highlight relevant skills and experience.\n- Do not invent roles, companies, degrees, or metrics.\n- Keep the same overall structure and tone when possible.\n- Return only the revised resume text.`;
+  return buildEnhancedPrompt(resumeText, job);
 }
 
 function safeJsonParse(text) {
@@ -283,39 +416,61 @@ function safeJsonParse(text) {
   }
 }
 
-async function callOpenAi(settings, prompt, systemMessage = 'You tailor resumes to job descriptions while staying truthful.') {
+async function callOpenAi(settings, prompt, systemMessage = 'You are an expert resume writer and recruiter. Your goal is to tailor resumes to job descriptions by highlighting the most relevant experience and skills, while always remaining truthful and never inventing information. Focus on matching the candidate\'s background to the specific requirements of the role.') {
+  // LINE 1: Validate API key and endpoint
+  if (!settings.llmApiKey || !settings.llmEndpoint) {
+    throw new Error('OpenAI API key and endpoint are required');
+  }
+  
+  // LINE 2: Prepare request headers with Bearer token authentication
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${settings.llmApiKey}`
+  };
+  
+  // LINE 3: Build request body with OpenAI API format
+  const requestBody = {
+    model: settings.llmModel || 'gpt-4o-mini',
+    messages: [
+      {
+        role: 'system',
+        content: systemMessage
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    temperature: 0.3,  // LINE 4: Lower temperature for more consistent, focused responses
+    max_tokens: 4000   // LINE 5: Set token limit for cost control and reasonable response length
+  };
+  
+  // LINE 6: Make POST request to OpenAI API endpoint
   const response = await fetch(settings.llmEndpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${settings.llmApiKey}`
-    },
-    body: JSON.stringify({
-      model: settings.llmModel || 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: systemMessage
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.2
-    })
+    headers,
+    body: JSON.stringify(requestBody)
   });
 
+  // LINE 7: Check for HTTP errors and provide helpful error messages
   if (!response.ok) {
-    throw new Error('LLM request failed.');
+    const errorData = await response.json().catch(() => ({}));
+    const errorMessage = errorData.error?.message || `OpenAI API error: ${response.status}`;
+    throw new Error(errorMessage);
   }
 
+  // LINE 8: Parse response JSON and extract message content
   const data = await response.json();
   const content = data.choices && data.choices[0] && data.choices[0].message
     ? data.choices[0].message.content
     : '';
 
-  return content ? content.trim() : '';
+  // LINE 9: Return trimmed content or throw error if empty
+  if (!content) {
+    throw new Error('Empty response from OpenAI API');
+  }
+  
+  return content.trim();
 }
 
 async function callGeneric(settings, payload) {
@@ -368,13 +523,42 @@ function extractKeywords(text, limit = 14) {
 }
 
 function fallbackTailor(resumeText, job) {
+  // Extract job requirements for better matching
+  const jobRequirements = extractJobRequirements(job.description);
   const keywords = extractKeywords(`${job.description} ${job.additional}`);
-  if (!keywords.length) {
+  
+  if (!keywords.length && jobRequirements.skills.length === 0) {
     return resumeText;
   }
 
-  const keywordLine = `Targeted keywords: ${keywords.join(', ')}`;
-  return `${resumeText}\n\n${keywordLine}`;
+  // Build a tailored summary based on extracted requirements
+  let tailoredResume = resumeText;
+  
+  // Extract matching keywords from resume
+  const resumeKeywords = extractKeywords(resumeText);
+  const matchedKeywords = keywords.filter(kw => 
+    resumeText.toLowerCase().includes(kw.toLowerCase())
+  );
+  
+  // Add a summary section highlighting matched requirements
+  let summary = '\n--- TAILORED FOR THIS ROLE ---\n';
+  
+  if (matchedKeywords.length > 0) {
+    summary += `Relevant expertise: ${matchedKeywords.slice(0, 8).join(', ')}\n`;
+  }
+  
+  if (jobRequirements.skills.length > 0) {
+    summary += `Target skills: ${jobRequirements.skills.slice(0, 6).join(', ')}\n`;
+  }
+  
+  if (jobRequirements.requirements.length > 0) {
+    summary += `Key focus areas:\n`;
+    jobRequirements.requirements.slice(0, 5).forEach((req, idx) => {
+      summary += `  ${idx + 1}. ${req}\n`;
+    });
+  }
+  
+  return tailoredResume + summary;
 }
 
 function computeDiffs(originalText, tailoredText) {
@@ -536,35 +720,48 @@ async function generateTailoredResume() {
   let tailoredText = '';
 
   try {
-    if (!settings.llmEndpoint || !settings.llmApiKey) {
+    // LINE 1: Check if OpenAI API key is configured
+    if (!settings.llmApiKey) {
+      setStatus('OpenAI API key not configured. Using fallback method.', 'info');
       tailoredText = fallbackTailor(resumeText, job);
-    } else if (settings.llmMode === 'generic') {
+    } 
+    // LINE 2: Use OpenAI API with enhanced prompt for better accuracy
+    else if (settings.llmMode === 'openai') {
+      const prompt = buildEnhancedPrompt(resumeText, job);
+      const responseText = await callOpenAi(settings, prompt, buildSystemMessage());
+      // LINE 3: Parse response and extract tailored text
+      const parsed = safeJsonParse(responseText);
+      tailoredText = parsed && parsed.tailoredText ? parsed.tailoredText : responseText;
+    } 
+    // LINE 4: Fallback to generic LLM endpoint if specified
+    else if (settings.llmMode === 'generic') {
       tailoredText = await callGeneric(settings, {
         resumeText,
         job,
-        instructions: 'Tailor the resume to the job while remaining truthful.'
+        instructions: 'Tailor the resume to the job while remaining truthful and highlighting relevant experience.'
       });
-    } else {
-      const prompt = buildPrompt(resumeText, job);
-      const responseText = await callOpenAi(settings, prompt);
-      const parsed = safeJsonParse(responseText);
-      tailoredText = parsed && parsed.tailoredText ? parsed.tailoredText : responseText;
     }
 
     if (!tailoredText) {
-      throw new Error('Empty response');
+      throw new Error('Empty response from LLM');
     }
 
+    // LINE 5: Store original and tailored text in state for diffing
     state.resumeText = resumeText;
     state.tailoredText = tailoredText;
+    
+    // LINE 6: Compute differences between original and tailored resume
     const diffResult = computeDiffs(resumeText, tailoredText);
     state.diffsWithGroup = diffResult.diffsWithGroup;
     state.diffGroups = diffResult.groups;
+    
+    // LINE 7: Render diffs to UI for user review
     renderDiffs();
     elements.finalText.value = buildFinalText();
     setStatus('Tailored resume ready. Review changes below.');
   } catch (error) {
-    setStatus('Tailoring failed. Check your LLM settings.', 'error');
+    console.error('Resume tailoring error:', error);
+    setStatus('Tailoring failed. Check your OpenAI API key and try again.', 'error');
   }
 }
 
