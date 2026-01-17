@@ -1,6 +1,7 @@
 // Import scraping modules
 import { parseJobWithLLM, fallbackParseJob } from './scraper/jobParser.js';
 import { scrapeWithExa } from './scraper/exaScraper.js';
+import { parseDocxStructure, mapTextToRuns, rebuildDocx } from './docxProcessor.js';
 
 // --- UI references and shared state ---
 const elements = {
@@ -18,13 +19,12 @@ const elements = {
   status: document.getElementById('status'),
   diffList: document.getElementById('diffList'),
   applyDiff: document.getElementById('applyDiff'),
+  selectAllDiffs: document.getElementById('selectAllDiffs'),
   finalText: document.getElementById('finalText'),
-  exportPdf: document.getElementById('exportPdf'),
+  exportDocx: document.getElementById('exportDocx'),
   copyText: document.getElementById('copyText'),
   exportStatus: document.getElementById('exportStatus'),
-  openSettings: document.getElementById('openSettings'),
-  pdfTemplate: document.getElementById('pdfTemplate'),
-  pdfContent: document.getElementById('pdfContent')
+  openSettings: document.getElementById('openSettings')
 };
 
 const defaults = {
@@ -39,7 +39,10 @@ const state = {
   resumeText: '',
   tailoredText: '',
   diffsWithGroup: [],
-  diffGroups: []
+  diffGroups: [],
+  docxBuffer: null,        // Original DOCX buffer
+  docxStructure: null,     // Parsed structure with runs
+  originalRuns: []         // Original run mapping
 };
 
 // --- Settings + text helpers ---
@@ -641,8 +644,26 @@ function renderDiffs() {
     empty.textContent = 'No changes to review.';
     empty.className = 'hint';
     elements.diffList.appendChild(empty);
+    // Hide select all when no diffs
+    if (elements.selectAllDiffs) {
+      elements.selectAllDiffs.closest('.row').style.display = 'none';
+    }
     return;
   }
+
+  // Show select all controls
+  if (elements.selectAllDiffs) {
+    elements.selectAllDiffs.closest('.row').style.display = 'flex';
+  }
+
+  // Update select all checkbox state
+  const allAccepted = state.diffGroups.every(group => group.accepted);
+  if (elements.selectAllDiffs) {
+    elements.selectAllDiffs.checked = allAccepted;
+  }
+
+  // Store checkboxes for select all functionality
+  const checkboxes = [];
 
   state.diffGroups.forEach((group, index) => {
     const item = document.createElement('div');
@@ -662,11 +683,15 @@ function renderDiffs() {
     checkbox.checked = group.accepted;
     checkbox.addEventListener('change', () => {
       group.accepted = checkbox.checked;
+      // Update select all state
+      updateSelectAllState();
     });
     toggle.appendChild(checkbox);
     const toggleText = document.createElement('span');
     toggleText.textContent = 'Accept';
     toggle.appendChild(toggleText);
+
+    checkboxes.push(checkbox);
 
     header.appendChild(title);
     header.appendChild(toggle);
@@ -693,6 +718,26 @@ function renderDiffs() {
     item.appendChild(body);
     elements.diffList.appendChild(item);
   });
+
+  // Handle select all checkbox
+  if (elements.selectAllDiffs) {
+    elements.selectAllDiffs.onchange = null; // Remove old listener
+    elements.selectAllDiffs.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      state.diffGroups.forEach((group, idx) => {
+        group.accepted = checked;
+        if (checkboxes[idx]) {
+          checkboxes[idx].checked = checked;
+        }
+      });
+    });
+  }
+}
+
+function updateSelectAllState() {
+  if (!elements.selectAllDiffs || !state.diffGroups.length) return;
+  const allAccepted = state.diffGroups.every(group => group.accepted);
+  elements.selectAllDiffs.checked = allAccepted;
 }
 
 async function generateTailoredResume() {
@@ -766,33 +811,68 @@ async function generateTailoredResume() {
 }
 
 // --- Export actions ---
-async function exportPdf() {
-  const text = elements.finalText.value.trim();
-  if (!text) {
+async function exportDocx() {
+  if (!state.docxStructure) {
+    setExportStatus('No DOCX file loaded. Cannot export with formatting.', 'error');
+    return;
+  }
+  
+  const finalText = elements.finalText.value.trim();
+  if (!finalText) {
     setExportStatus('Add final text before exporting.', 'error');
     return;
   }
-
-  elements.pdfContent.textContent = text;
-  elements.pdfTemplate.hidden = false;
-  elements.pdfTemplate.style.display = 'block';
-
+  
   try {
-    await window.html2pdf()
-      .set({
-        margin: 12,
-        filename: 'tailored-resume.pdf',
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      })
-      .from(elements.pdfContent)
-      .save();
-    setExportStatus('PDF exported.');
+    setExportStatus('Building DOCX...');
+    
+    // Map text changes to runs while preserving formatting
+    const modifiedRuns = mapTextToRuns(
+      state.resumeText,
+      finalText,
+      state.docxStructure.runs
+    );
+    
+    // Rebuild DOCX with modified runs
+    const docxBlob = await rebuildDocx(
+      state.docxBuffer,
+      modifiedRuns
+    );
+    
+    // Trigger download
+    const url = URL.createObjectURL(docxBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'tailored-resume.docx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    setExportStatus('DOCX exported.');
   } catch (error) {
-    setExportStatus('Export failed.', 'error');
-  } finally {
-    elements.pdfTemplate.style.display = 'none';
-    elements.pdfTemplate.hidden = true;
+    console.error('DOCX export error:', error);
+    const errorMessage = error.message || 'Unknown error';
+    
+    // Provide user-friendly error messages
+    if (errorMessage.includes('JSZip') || errorMessage.includes('not loaded')) {
+      setExportStatus('JSZip library not loaded. Please refresh the page.', 'error');
+    } else if (errorMessage.includes('corrupted') || errorMessage.includes('Invalid')) {
+      setExportStatus('DOCX file appears corrupted. Try a different file.', 'error');
+    } else if (errorMessage.includes('No paragraphs') || errorMessage.includes('empty')) {
+      setExportStatus('Document appears empty. Check your DOCX file.', 'error');
+    } else if (errorMessage.includes('XML parsing')) {
+      setExportStatus('Document structure error. Try a simpler DOCX file.', 'error');
+    } else {
+      setExportStatus(`Export failed: ${errorMessage}`, 'error');
+    }
+    
+    // Show additional help after a delay
+    setTimeout(() => {
+      if (errorMessage.includes('formatting')) {
+        setExportStatus('Tip: Complex formatting may not be fully preserved.', 'error');
+      }
+    }, 2000);
   }
 }
 
@@ -820,12 +900,46 @@ async function handleExtractResume() {
   }
 
   try {
-    const text = await extractDocxText(file);
-    elements.resumeText.value = text;
-    state.resumeText = text;
-    setStatus('Resume extracted.');
+    // Try to parse DOCX structure for formatting preservation
+    try {
+      const structure = await parseDocxStructure(file);
+      state.docxBuffer = structure.buffer;
+      state.docxStructure = structure;
+      state.originalRuns = structure.runs;
+      
+      // Use plain text for display and LLM
+      const text = structure.plainText || await extractDocxText(file);
+      elements.resumeText.value = text;
+      state.resumeText = text;
+      console.log('DOCX extraction succeeded:', {
+        runsCount: structure.runs.length,
+        textLength: text.length,
+        formattingPreserved: true
+      });
+      setStatus('Resume extracted with formatting preserved.');
+    } catch (docxError) {
+      // Fallback to plain text extraction if DOCX parsing fails
+      console.warn('DOCX structure parsing failed, using plain text:', docxError);
+      try {
+        const text = await extractDocxText(file);
+        elements.resumeText.value = text;
+        state.resumeText = text;
+        state.docxBuffer = null;
+        state.docxStructure = null;
+        state.originalRuns = [];
+        console.log('DOCX extraction succeeded (plain text fallback):', {
+          textLength: text.length,
+          formattingPreserved: false
+        });
+        setStatus('Resume extracted (formatting may not be preserved).');
+      } catch (fallbackError) {
+        console.error('Fallback extraction also failed:', fallbackError);
+        setStatus(`Extraction failed: ${docxError.message}`, 'error');
+      }
+    }
   } catch (error) {
-    setStatus('DOCX extraction failed.', 'error');
+    console.error('DOCX extraction error:', error);
+    setStatus(`DOCX extraction failed: ${error.message}`, 'error');
   }
 }
 
@@ -841,7 +955,7 @@ function attachListeners() {
   elements.deepScrape.addEventListener('click', deepScrapeExa);
   elements.generateResume.addEventListener('click', generateTailoredResume);
   elements.applyDiff.addEventListener('click', applyDiffSelections);
-  elements.exportPdf.addEventListener('click', exportPdf);
+  elements.exportDocx.addEventListener('click', exportDocx);
   elements.copyText.addEventListener('click', copyFinalText);
   elements.openSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
 }

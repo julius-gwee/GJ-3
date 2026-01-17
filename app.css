@@ -225,6 +225,23 @@ button.ghost:hover {
   font-size: 12px;
 }
 
+.diff-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--accent-2);
+}
+
+.diff-select-all input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 .diff-body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

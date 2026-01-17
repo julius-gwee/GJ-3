@@ -12,7 +12,7 @@ const fields = {
 const defaults = {
   exaApiKey: '',
   llmEndpoint: 'https://api.openai.com/v1/chat/completions',
-  llmModel: 'gpt-4o-mini',
+  llmModel: 'gpt-5.2',
   llmMode: 'openai',
   llmApiKey: ''
 };

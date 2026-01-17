@@ -81,7 +81,11 @@
           <span class="badge">Diff</span>
         </div>
         <div id="diffList" class="diff-list"></div>
-        <div class="row">
+        <div class="row" id="diffControls">
+          <label class="diff-select-all">
+            <input type="checkbox" id="selectAllDiffs">
+            <span>Select all</span>
+          </label>
           <button id="applyDiff" class="secondary">Apply selections</button>
         </div>
       </section>
@@ -93,20 +97,16 @@
         </div>
         <textarea id="finalText" rows="14" placeholder="Final resume text..."></textarea>
         <div class="row">
-          <button id="exportPdf" class="secondary">Export PDF</button>
+          <button id="exportDocx" class="secondary">Export DOCX</button>
           <button id="copyText" class="ghost">Copy text</button>
           <span id="exportStatus" class="status"></span>
         </div>
       </section>
     </div>
 
-    <div id="pdfTemplate" class="pdf-template" hidden>
-      <div id="pdfContent" class="pdf-content"></div>
-    </div>
-
     <script src="vendor/mammoth.browser.min.js"></script>
     <script src="vendor/diff-match-patch.js"></script>
-    <script src="vendor/html2pdf.bundle.min.js"></script>
+    <script src="vendor/jszip.min.js"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>

@@ -22,6 +22,8 @@
     "diff-match-patch": "^1.0.5",
     "html2pdf.js": "^0.14.0",
     "mammoth": "^1.11.0",
-    "pdfjs-dist": "^5.4.530"
+    "pdfjs-dist": "^5.4.530",
+    "jszip": "^3.10.1",
+    "fast-xml-parser": "^4.3.2"
   }
 }
