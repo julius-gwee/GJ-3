@@ -442,7 +442,7 @@ async function callOpenAi(settings, prompt, systemMessage = 'You are an expert r
       }
     ],
     temperature: 0.3,  // LINE 4: Lower temperature for more consistent, focused responses
-    max_tokens: 4000   // LINE 5: Set token limit for cost control and reasonable response length
+    max_completion_tokens: 4000   // LINE 5: Set token limit for cost control and reasonable response length
   };
   
   // LINE 6: Make POST request to OpenAI API endpoint
