@@ -1,5 +1,6 @@
 import * as pdfjsLib from './vendor/pdf.mjs';
 
+// --- UI references and shared state ---
 const elements = {
   resumeFile: document.getElementById('resumeFile'),
   extractResume: document.getElementById('extractResume'),
@@ -39,6 +40,7 @@ const state = {
   diffGroups: []
 };
 
+// --- Settings + text helpers ---
 pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.mjs');
 
 function setStatus(message, tone = 'info') {
@@ -63,6 +65,7 @@ function normalizeText(text) {
     .trim();
 }
 
+// --- PDF extraction ---
 async function extractPdfText(file) {
   const buffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: buffer });
@@ -79,6 +82,7 @@ async function extractPdfText(file) {
   return normalizeText(fullText);
 }
 
+// --- Job scraping (URL-based) ---
 async function prefillActiveTab() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -91,21 +95,27 @@ async function prefillActiveTab() {
 }
 
 async function scrapeCurrentTab() {
-  setStatus('Scraping current tab...');
+  setStatus('Scraping job URL...');
   console.log('Scraping URL:', elements.jobUrl.value);
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); // currentWindow: true
-    if (!tab || !tab.id) {
-      setStatus('No active tab found.', 'error');
-      console.log('No active tab found.');
+    const url = elements.jobUrl.value.trim();
+    if (!url) {
+      setStatus('Add a job URL first.', 'error');
+      console.log('No job URL provided.');
       return;
     }
 
-    elements.jobUrl.value = tab.url || elements.jobUrl.value;
-    const data = await chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_JOB' });
+    const response = await chrome.runtime.sendMessage({ type: 'SCRAPE_URL', url });
+    if (!response || !response.ok) {
+      setStatus(response && response.error ? response.error : 'Scrape failed.', 'error');
+      console.log('Scrape failed:', response && response.error);
+      return;
+    }
+
+    const data = response.data;
     if (!data) {
       setStatus('Could not read this page.', 'error');
-      console.log('No data returned from content script.');
+      console.log('No data returned from background scrape.');
       return;
     }
 
@@ -119,13 +129,14 @@ async function scrapeCurrentTab() {
     }
     console.log('Scraped data:', data);
 
-    setStatus('Job details pulled from the page.');
+    setStatus('Job details pulled from the URL.');
   } catch (error) {
-    setStatus('Scrape failed. Open a standard job listing page.', 'error');
+    setStatus('Scrape failed. Check the URL and try again.', 'error');
     console.log('Scrape error:', error);
   }
 }
 
+// --- Exa deep scrape ---
 async function deepScrapeExa() {
   setStatus('Deep scraping with Exa...');
   const settings = await getSettings();
@@ -172,6 +183,7 @@ async function deepScrapeExa() {
   }
 }
 
+// --- LLM tailoring + diffing ---
 function buildPrompt(resumeText, job) {
   return `Resume:\n${resumeText}\n\nJob description:\n${job.description}\n\nCompany: ${job.company}\nRole: ${job.title}\nURL: ${job.url}\nAdditional context:\n${job.additional}\n\nInstructions:\n- Tailor the resume to highlight relevant skills and experience.\n- Do not invent roles, companies, degrees, or metrics.\n- Keep the same overall structure and tone when possible.\n- Return only the revised resume text.`;
 }
@@ -465,6 +477,7 @@ async function generateTailoredResume() {
   }
 }
 
+// --- Export actions ---
 async function exportPdf() {
   const text = elements.finalText.value.trim();
   if (!text) {
@@ -533,6 +546,7 @@ function applyDiffSelections() {
   setExportStatus('Applied selected changes.');
 }
 
+// --- UI wiring ---
 function attachListeners() {
   elements.extractResume.addEventListener('click', handleExtractResume);
   elements.scrapeJob.addEventListener('click', scrapeCurrentTab);
