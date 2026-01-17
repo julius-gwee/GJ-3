@@ -1,5 +1,3 @@
-import * as pdfjsLib from './vendor/pdf.mjs';
-
 // --- UI references and shared state ---
 const elements = {
   resumeFile: document.getElementById('resumeFile'),
@@ -41,8 +39,6 @@ const state = {
 };
 
 // --- Settings + text helpers ---
-pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.mjs');
-
 function setStatus(message, tone = 'info') {
   elements.status.textContent = message;
   elements.status.style.color = tone === 'error' ? '#b42318' : '#1b7f79';
@@ -65,21 +61,11 @@ function normalizeText(text) {
     .trim();
 }
 
-// --- PDF extraction ---
-async function extractPdfText(file) {
+// --- Word extraction ---
+async function extractDocxText(file) {
   const buffer = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data: buffer });
-  const pdf = await loadingTask.promise;
-  let fullText = '';
-
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    const pageText = content.items.map((item) => item.str).join(' ');
-    fullText += `${pageText}\n\n`;
-  }
-
-  return normalizeText(fullText);
+  const result = await window.mammoth.extractRawText({ arrayBuffer: buffer });
+  return normalizeText(result.value || '');
 }
 
 // --- Job scraping (URL-based) ---
@@ -424,7 +410,7 @@ async function generateTailoredResume() {
   setStatus('Generating tailored resume...');
   const resumeText = elements.resumeText.value.trim();
   if (!resumeText) {
-    setStatus('Please upload and extract a resume PDF first.', 'error');
+    setStatus('Please upload and extract a resume DOCX first.', 'error');
     return;
   }
 
@@ -527,17 +513,17 @@ async function handleExtractResume() {
   setStatus('Extracting resume...');
   const file = elements.resumeFile.files[0];
   if (!file) {
-    setStatus('Select a PDF first.', 'error');
+    setStatus('Select a DOCX file first.', 'error');
     return;
   }
 
   try {
-    const text = await extractPdfText(file);
+    const text = await extractDocxText(file);
     elements.resumeText.value = text;
     state.resumeText = text;
     setStatus('Resume extracted.');
   } catch (error) {
-    setStatus('PDF extraction failed.', 'error');
+    setStatus('DOCX extraction failed.', 'error');
   }
 }
 

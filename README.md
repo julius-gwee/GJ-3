@@ -20,13 +20,14 @@ Open **Settings** from the popup or at `chrome-extension://<id>/options.html`.
 
 1. Open the job listing in a tab.
 2. Click the extension icon and open the workspace.
-3. Upload a resume PDF and extract text.
+3. Upload a resume DOCX and extract text.
 4. Scrape the current tab (or paste details manually).
 5. Generate a tailored resume.
 6. Review the diff, apply selections, and export a PDF.
 
 ## Notes
 
+- Resume input expects `.docx` files (Word).
 - If no LLM key is set, the extension uses a lightweight keyword-based fallback.
 - Diff review lets you accept or reject each change block.
 - PDF export uses a clean template with preserved line breaks.

@@ -20,12 +20,12 @@
 
       <section class="card" id="resume-section">
         <div class="section-head">
-          <h2>1. Resume PDF</h2>
+          <h2>1. Resume Word (.docx)</h2>
           <span class="badge">Input</span>
         </div>
         <div class="row">
-          <input id="resumeFile" type="file" accept="application/pdf">
-          <button id="extractResume">Extract PDF</button>
+          <input id="resumeFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+          <button id="extractResume">Extract DOCX</button>
         </div>
         <textarea id="resumeText" placeholder="Extracted resume text appears here..."></textarea>
       </section>
@@ -104,6 +104,7 @@
       <div id="pdfContent" class="pdf-content"></div>
     </div>
 
+    <script src="vendor/mammoth.browser.min.js"></script>
     <script src="vendor/diff-match-patch.js"></script>
     <script src="vendor/html2pdf.bundle.min.js"></script>
     <script type="module" src="app.js"></script>
