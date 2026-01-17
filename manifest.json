@@ -23,7 +23,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["contentScript.js"],
+      "js": ["scraper/domExtractor.js", "contentScript.js"],
       "run_at": "document_idle"
     }
   ],
@@ -33,6 +33,7 @@
         "app.html",
         "app.css",
         "app.js",
+        "scraper/*.js",
         "vendor/*.js",
         "vendor/*.mjs"
       ],

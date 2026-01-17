@@ -1,3 +1,7 @@
+// Import scraping modules
+import { parseJobWithLLM, fallbackParseJob } from './scraper/jobParser.js';
+import { scrapeWithExa } from './scraper/exaScraper.js';
+
 // --- UI references and shared state ---
 const elements = {
   resumeFile: document.getElementById('resumeFile'),
@@ -98,24 +102,78 @@ async function scrapeCurrentTab() {
       return;
     }
 
-    const data = response.data;
-    if (!data) {
+    const scrapedData = response.data;
+    if (!scrapedData) {
       setStatus('Could not read this page.', 'error');
       console.log('No data returned from background scrape.');
       return;
     }
 
-    elements.jobTitle.value = data.title || elements.jobTitle.value;
-    elements.companyName.value = data.company || elements.companyName.value;
-    const combinedDescription = [data.description, data.metaDescription]
-      .filter(Boolean)
-      .join('\n\n');
-    if (combinedDescription) {
-      elements.jobDescription.value = combinedDescription;
-    }
-    console.log('Scraped data:', data);
+    // Combine all text for parsing
+    const rawText = [
+      scrapedData.description,
+      scrapedData.metaDescription
+    ].filter(Boolean).join('\n\n');
 
-    setStatus('Job details pulled from the URL.');
+    if (!rawText) {
+      setStatus('No content found on this page.', 'error');
+      return;
+    }
+
+    // Try LLM parsing if available
+    const settings = await getSettings();
+    let parsedData = null;
+
+    if (settings.llmEndpoint && settings.llmApiKey) {
+      try {
+        setStatus('Parsing job details with LLM...');
+        parsedData = await parseJobWithLLMWrapper(rawText, url, settings);
+        console.log('LLM parsed data:', parsedData);
+      } catch (error) {
+        console.log('LLM parsing failed, using fallback:', error);
+        // Fall through to fallback parsing
+      }
+    }
+
+    // Use fallback parsing if LLM parsing failed or isn't available
+    if (!parsedData) {
+      setStatus('Parsing job details...');
+      parsedData = fallbackParseJobWrapper(rawText, url, scrapedData);
+      console.log('Fallback parsed data:', parsedData);
+    }
+
+    // Populate fields
+    if (parsedData.jobTitle) {
+      elements.jobTitle.value = parsedData.jobTitle;
+    } else if (scrapedData.title) {
+      elements.jobTitle.value = scrapedData.title;
+    }
+
+    if (parsedData.companyName) {
+      elements.companyName.value = parsedData.companyName;
+    } else if (scrapedData.company) {
+      elements.companyName.value = scrapedData.company;
+    }
+
+    // Combine description and requirements for job description field
+    const jobDescriptionParts = [
+      parsedData.description,
+      parsedData.requirements
+    ].filter(Boolean);
+
+    if (jobDescriptionParts.length > 0) {
+      elements.jobDescription.value = jobDescriptionParts.join('\n\n');
+    } else if (rawText) {
+      // Fallback to raw text if parsing didn't extract description
+      elements.jobDescription.value = rawText;
+    }
+
+    // Populate additional context
+    if (parsedData.additionalContext) {
+      elements.additionalContext.value = parsedData.additionalContext;
+    }
+
+    setStatus('Job details extracted and populated.');
   } catch (error) {
     setStatus('Scrape failed. Check the URL and try again.', 'error');
     console.log('Scrape error:', error);
@@ -138,35 +196,78 @@ async function deepScrapeExa() {
   }
 
   try {
-    const response = await fetch('https://api.exa.ai/contents', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': settings.exaApiKey
-      },
-      body: JSON.stringify({
-        urls: [url],
-        text: true,
-        highlights: true
-      })
-    });
+    // Use Exa scraper module
+    const rawText = await scrapeWithExa(url, settings.exaApiKey);
 
-    if (!response.ok) {
-      throw new Error('Exa request failed.');
+    // Try LLM parsing if available
+    let parsedData = null;
+
+    if (settings.llmEndpoint && settings.llmApiKey) {
+      try {
+        setStatus('Parsing Exa content with LLM...');
+        parsedData = await parseJobWithLLMWrapper(rawText, url, settings);
+        console.log('LLM parsed Exa data:', parsedData);
+      } catch (error) {
+        console.log('LLM parsing failed, using fallback:', error);
+        // Fall through to fallback parsing
+      }
     }
 
-    const data = await response.json();
-    const result = (data.results && data.results[0]) || (data.data && data.data[0]) || data.result;
-    const text = result && (result.text || result.contents || result.content || '');
-    if (text) {
-      elements.jobDescription.value = text;
-      setStatus('Exa content loaded.');
+    // Use fallback parsing if LLM parsing failed or isn't available
+    if (!parsedData) {
+      setStatus('Parsing Exa content...');
+      // Create a minimal scrapedData object for fallback
+      const scrapedData = {
+        title: elements.jobTitle.value || '',
+        company: elements.companyName.value || '',
+        description: rawText
+      };
+      parsedData = fallbackParseJobWrapper(rawText, url, scrapedData);
+      console.log('Fallback parsed Exa data:', parsedData);
+    }
+
+    // Populate fields
+    if (parsedData.jobTitle && !elements.jobTitle.value) {
+      elements.jobTitle.value = parsedData.jobTitle;
+    }
+
+    if (parsedData.companyName && !elements.companyName.value) {
+      elements.companyName.value = parsedData.companyName;
+    }
+
+    // Combine description and requirements for job description field
+    const jobDescriptionParts = [
+      parsedData.description,
+      parsedData.requirements
+    ].filter(Boolean);
+
+    if (jobDescriptionParts.length > 0) {
+      elements.jobDescription.value = jobDescriptionParts.join('\n\n');
     } else {
-      setStatus('No text returned from Exa.', 'error');
+      // Fallback to raw text if parsing didn't extract description
+      elements.jobDescription.value = rawText;
     }
+
+    // Populate additional context
+    if (parsedData.additionalContext) {
+      elements.additionalContext.value = parsedData.additionalContext;
+    }
+
+    setStatus('Exa content parsed and populated.');
   } catch (error) {
     setStatus('Exa scrape failed. Check your key and URL.', 'error');
+    console.log('Exa error:', error);
   }
+}
+
+// Job parsing functions are now imported from scraper/jobParser.js
+// Wrapper functions to maintain compatibility with existing code
+async function parseJobWithLLMWrapper(rawText, url, settings) {
+  return parseJobWithLLM(rawText, url, settings, callOpenAi, callGeneric);
+}
+
+function fallbackParseJobWrapper(rawText, url, scrapedData) {
+  return fallbackParseJob(rawText, url, scrapedData);
 }
 
 // --- LLM tailoring + diffing ---
@@ -182,7 +283,7 @@ function safeJsonParse(text) {
   }
 }
 
-async function callOpenAi(settings, prompt) {
+async function callOpenAi(settings, prompt, systemMessage = 'You tailor resumes to job descriptions while staying truthful.') {
   const response = await fetch(settings.llmEndpoint, {
     method: 'POST',
     headers: {
@@ -194,7 +295,7 @@ async function callOpenAi(settings, prompt) {
       messages: [
         {
           role: 'system',
-          content: 'You tailor resumes to job descriptions while staying truthful.'
+          content: systemMessage
         },
         {
           role: 'user',
@@ -236,7 +337,11 @@ async function callGeneric(settings, payload) {
   }
 
   const data = await response.json();
-  return data.tailoredText || data.text || '';
+  // Support multiple response formats
+  if (typeof data === 'string') {
+    return data;
+  }
+  return data.tailoredText || data.text || data.response || data.content || '';
 }
 
 function extractKeywords(text, limit = 14) {
