@@ -21,6 +21,7 @@ body {
   color: var(--ink);
   background: linear-gradient(120deg, #fff3e6 0%, #f7f9f5 45%, #e7f2f0 100%);
   min-height: 100vh;
+  overflow-y: auto;
 }
 
 body::before {
