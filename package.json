@@ -1,0 +1,26 @@
+{
+  "name": "hacknroll'26",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/julius-gwee/GJ-3.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/julius-gwee/GJ-3/issues"
+  },
+  "homepage": "https://github.com/julius-gwee/GJ-3#readme",
+  "dependencies": {
+    "diff-match-patch": "^1.0.5",
+    "html2pdf.js": "^0.14.0",
+    "pdfjs-dist": "^5.4.530"
+  }
+}

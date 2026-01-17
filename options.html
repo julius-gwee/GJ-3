@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tailor Resume Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Tailor Resume Settings</h1>
+        <p>Store your API keys locally for Exa and your LLM provider.</p>
+      </header>
+
+      <form id="settingsForm" class="card">
+        <div class="field">
+          <label for="exaKey">Exa API key</label>
+          <input id="exaKey" type="password" placeholder="exa_...">
+        </div>
+
+        <div class="field">
+          <label for="llmEndpoint">LLM endpoint</label>
+          <input id="llmEndpoint" type="text" placeholder="https://api.openai.com/v1/chat/completions">
+        </div>
+
+        <div class="field">
+          <label for="llmModel">LLM model</label>
+          <input id="llmModel" type="text" placeholder="gpt-4o-mini">
+        </div>
+
+        <div class="field">
+          <label for="llmMode">LLM mode</label>
+          <select id="llmMode">
+            <option value="openai">OpenAI-compatible</option>
+            <option value="generic">Generic JSON endpoint</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="llmKey">LLM API key</label>
+          <input id="llmKey" type="password" placeholder="sk-...">
+        </div>
+
+        <button type="submit">Save settings</button>
+        <div id="status" class="status"></div>
+      </form>
+
+      <div class="note">
+        <strong>Tip:</strong> For generic endpoints, the extension sends JSON with
+        <code>resumeText</code>, <code>job</code>, and <code>instructions</code>, and
+        expects <code>{ "tailoredText": "..." }</code>.
+      </div>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

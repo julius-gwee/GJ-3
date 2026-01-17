@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tailor Resume Workspace</title>
+    <link rel="stylesheet" href="app.css">
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <div>
+          <h1>Tailor your resume fast</h1>
+          <p>Upload a PDF, pull the job description, and review changes before exporting.</p>
+        </div>
+        <div class="hero-actions">
+          <button id="openSettings" class="ghost">Settings</button>
+        </div>
+      </header>
+
+      <section class="card" id="resume-section">
+        <div class="section-head">
+          <h2>1. Resume PDF</h2>
+          <span class="badge">Input</span>
+        </div>
+        <div class="row">
+          <input id="resumeFile" type="file" accept="application/pdf">
+          <button id="extractResume">Extract PDF</button>
+        </div>
+        <textarea id="resumeText" placeholder="Extracted resume text appears here..."></textarea>
+      </section>
+
+      <section class="card" id="job-section">
+        <div class="section-head">
+          <h2>2. Job context</h2>
+          <span class="badge">Source</span>
+        </div>
+        <div class="grid">
+          <div class="field">
+            <label for="jobUrl">Job URL</label>
+            <input id="jobUrl" type="text" placeholder="https://company.com/jobs/...">
+          </div>
+          <div class="field">
+            <label for="jobTitle">Role title</label>
+            <input id="jobTitle" type="text" placeholder="Product Designer">
+          </div>
+          <div class="field">
+            <label for="companyName">Company</label>
+            <input id="companyName" type="text" placeholder="Acme Labs">
+          </div>
+        </div>
+        <div class="field">
+          <label for="jobDescription">Job description and requirements</label>
+          <textarea id="jobDescription" rows="6" placeholder="Paste the job description..."></textarea>
+        </div>
+        <div class="field">
+          <label for="additionalContext">Additional context</label>
+          <textarea id="additionalContext" rows="4" placeholder="Company values, culture, stack, etc."></textarea>
+        </div>
+        <div class="row">
+          <button id="scrapeJob" class="secondary">Scrape current tab</button>
+          <button id="deepScrape" class="ghost">Deep scrape (Exa)</button>
+        </div>
+      </section>
+
+      <section class="card" id="tailor-section">
+        <div class="section-head">
+          <h2>3. Tailor</h2>
+          <span class="badge">AI</span>
+        </div>
+        <p class="hint">Uses your stored LLM endpoint to create a tailored version.</p>
+        <div class="row">
+          <button id="generateResume">Generate tailored resume</button>
+          <span id="status" class="status"></span>
+        </div>
+      </section>
+
+      <section class="card" id="diff-section">
+        <div class="section-head">
+          <h2>4. Review changes</h2>
+          <span class="badge">Diff</span>
+        </div>
+        <div id="diffList" class="diff-list"></div>
+        <div class="row">
+          <button id="applyDiff" class="secondary">Apply selections</button>
+        </div>
+      </section>
+
+      <section class="card" id="final-section">
+        <div class="section-head">
+          <h2>5. Final resume</h2>
+          <span class="badge">Export</span>
+        </div>
+        <textarea id="finalText" rows="14" placeholder="Final resume text..."></textarea>
+        <div class="row">
+          <button id="exportPdf" class="secondary">Export PDF</button>
+          <button id="copyText" class="ghost">Copy text</button>
+          <span id="exportStatus" class="status"></span>
+        </div>
+      </section>
+    </div>
+
+    <div id="pdfTemplate" class="pdf-template" hidden>
+      <div id="pdfContent" class="pdf-content"></div>
+    </div>
+
+    <script src="vendor/diff-match-patch.js"></script>
+    <script src="vendor/html2pdf.bundle.min.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tailor Resume</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1f1c16;
+        --accent: #f55d3e;
+        --accent-2: #1b7f79;
+        --paper: #fffaf2;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Bahnschrift", "Trebuchet MS", "Segoe UI", sans-serif;
+        background: linear-gradient(135deg, #fff8ef, #f1f6f3);
+        color: var(--ink);
+        min-width: 280px;
+      }
+
+      .wrap {
+        padding: 16px;
+        display: grid;
+        gap: 12px;
+      }
+
+      h1 {
+        font-size: 18px;
+        margin: 0;
+      }
+
+      p {
+        margin: 0;
+        font-size: 12px;
+        opacity: 0.75;
+      }
+
+      button {
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: var(--accent-2);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div>
+        <h1>Tailor Resume</h1>
+        <p>Open the workspace to upload your resume and tailor it.</p>
+      </div>
+      <button id="openApp">Open workspace</button>
+      <button id="openSettings" class="secondary">Settings</button>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

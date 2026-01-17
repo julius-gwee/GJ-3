@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "TailorResume",
+  "version": "0.1.0",
+  "description": "Auto-tailor resumes to job descriptions and review changes before export.",
+  "action": {
+    "default_title": "Tailor Resume",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html"
+}
