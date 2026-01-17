@@ -1,8 +1,9 @@
 // --- UI references and shared state ---
 const elements = {
-  resumeFile: document.getElementById('resumeFile'),
-  extractResume: document.getElementById('extractResume'),
-  resumeText: document.getElementById('resumeText'),
+  originalDoc: document.getElementById('originalDoc'),
+  tailoredDoc: document.getElementById('tailoredDoc'),
+  extractOriginal: document.getElementById('extractOriginal'),
+  extractTailored: document.getElementById('extractTailored'),
   jobUrl: document.getElementById('jobUrl'),
   jobTitle: document.getElementById('jobTitle'),
   companyName: document.getElementById('companyName'),
@@ -14,7 +15,7 @@ const elements = {
   status: document.getElementById('status'),
   diffList: document.getElementById('diffList'),
   applyDiff: document.getElementById('applyDiff'),
-  finalText: document.getElementById('finalText'),
+  toggleInlineDiff: document.getElementById('toggleInlineDiff'),
   exportPdf: document.getElementById('exportPdf'),
   copyText: document.getElementById('copyText'),
   exportStatus: document.getElementById('exportStatus'),
@@ -35,8 +36,14 @@ const state = {
   resumeText: '',
   tailoredText: '',
   diffsWithGroup: [],
-  diffGroups: []
+  diffGroups: [],
+  finalText: '',
+  finalHtml: '',
+  inlineDiff: false
 };
+
+let resumeQuill;
+let finalQuill;
 
 // --- Settings + text helpers ---
 function setStatus(message, tone = 'info') {
@@ -59,6 +66,49 @@ function normalizeText(text) {
     .replace(/-\s+\n/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function textToHtml(text) {
+  if (!text) {
+    return '';
+  }
+
+  return text
+    .split(/\n{2,}/)
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+}
+
+function getEditorText(quill) {
+  if (!quill) {
+    return '';
+  }
+  return normalizeText(quill.getText() || '');
+}
+
+function setEditorText(quill, text) {
+  if (!quill) {
+    return;
+  }
+  quill.setText('');
+  quill.clipboard.dangerouslyPasteHTML(textToHtml(text));
+}
+
+function setEditorHtml(quill, html) {
+  if (!quill) {
+    return;
+  }
+  quill.setText('');
+  quill.clipboard.dangerouslyPasteHTML(html || '');
 }
 
 // --- Word extraction ---
@@ -319,6 +369,31 @@ function computeDiffs(originalText, tailoredText) {
   return { diffsWithGroup, groups };
 }
 
+function buildInlineDiffDelta(originalText, tailoredText) {
+  const dmp = new window.diff_match_patch();
+  const diffs = dmp.diff_main(originalText, tailoredText);
+  dmp.diff_cleanupSemantic(diffs);
+
+  const Delta = window.Quill.import('delta');
+  let delta = new Delta();
+
+  diffs.forEach(([op, text]) => {
+    if (!text) {
+      return;
+    }
+
+    if (op === window.DIFF_INSERT) {
+      delta = delta.insert(text, { background: '#d7f5f0', color: '#0f5b57' });
+    } else if (op === window.DIFF_DELETE) {
+      delta = delta.insert(text, { background: '#f8d7d4', color: '#a02525', strike: true });
+    } else {
+      delta = delta.insert(text);
+    }
+  });
+
+  return delta;
+}
+
 function buildFinalText() {
   if (!state.diffsWithGroup.length) {
     return state.tailoredText || state.resumeText;
@@ -408,7 +483,7 @@ function renderDiffs() {
 
 async function generateTailoredResume() {
   setStatus('Generating tailored resume...');
-  const resumeText = elements.resumeText.value.trim();
+  const resumeText = getEditorText(resumeQuill);
   if (!resumeText) {
     setStatus('Please upload and extract a resume DOCX first.', 'error');
     return;
@@ -456,7 +531,13 @@ async function generateTailoredResume() {
     state.diffsWithGroup = diffResult.diffsWithGroup;
     state.diffGroups = diffResult.groups;
     renderDiffs();
-    elements.finalText.value = buildFinalText();
+    const finalText = buildFinalText();
+    state.finalText = finalText;
+    state.inlineDiff = false;
+    setEditorText(finalQuill, finalText);
+    state.finalHtml = finalQuill.root.innerHTML;
+    finalQuill.enable(true);
+    updateInlineDiffButton();
     setStatus('Tailored resume ready. Review changes below.');
   } catch (error) {
     setStatus('Tailoring failed. Check your LLM settings.', 'error');
@@ -465,13 +546,14 @@ async function generateTailoredResume() {
 
 // --- Export actions ---
 async function exportPdf() {
-  const text = elements.finalText.value.trim();
+  const text = state.inlineDiff ? state.finalText : getEditorText(finalQuill);
   if (!text) {
     setExportStatus('Add final text before exporting.', 'error');
     return;
   }
 
-  elements.pdfContent.textContent = text;
+  const html = state.inlineDiff ? state.finalHtml : finalQuill.root.innerHTML;
+  elements.pdfContent.innerHTML = html || textToHtml(text);
   elements.pdfTemplate.hidden = false;
   elements.pdfTemplate.style.display = 'block';
 
@@ -495,7 +577,7 @@ async function exportPdf() {
 }
 
 async function copyFinalText() {
-  const text = elements.finalText.value.trim();
+  const text = state.inlineDiff ? state.finalText : getEditorText(finalQuill);
   if (!text) {
     setExportStatus('Nothing to copy.', 'error');
     return;
@@ -509,40 +591,133 @@ async function copyFinalText() {
   }
 }
 
-async function handleExtractResume() {
+async function handleExtractOriginal() {
   setStatus('Extracting resume...');
-  const file = elements.resumeFile.files[0];
+  const file = elements.originalDoc.files[0];
   if (!file) {
-    setStatus('Select a DOCX file first.', 'error');
+    setStatus('Select an original DOCX file first.', 'error');
     return;
   }
 
   try {
     const text = await extractDocxText(file);
-    elements.resumeText.value = text;
+    setEditorText(resumeQuill, text);
     state.resumeText = text;
-    setStatus('Resume extracted.');
+    setStatus('Original resume loaded.');
+    refreshDiffsFromUploads();
   } catch (error) {
     setStatus('DOCX extraction failed.', 'error');
   }
 }
 
+async function handleExtractTailored() {
+  setStatus('Extracting tailored resume...');
+  const file = elements.tailoredDoc.files[0];
+  if (!file) {
+    setStatus('Select a tailored DOCX file first.', 'error');
+    return;
+  }
+
+  try {
+    const text = await extractDocxText(file);
+    state.tailoredText = text;
+    setEditorText(finalQuill, text);
+    state.finalText = text;
+    state.finalHtml = finalQuill.root.innerHTML;
+    finalQuill.enable(true);
+    updateInlineDiffButton();
+    setStatus('Tailored resume loaded.');
+    refreshDiffsFromUploads();
+  } catch (error) {
+    setStatus('DOCX extraction failed.', 'error');
+  }
+}
+
+function refreshDiffsFromUploads() {
+  if (!state.resumeText || !state.tailoredText) {
+    return;
+  }
+
+  const diffResult = computeDiffs(state.resumeText, state.tailoredText);
+  state.diffsWithGroup = diffResult.diffsWithGroup;
+  state.diffGroups = diffResult.groups;
+  renderDiffs();
+
+  const finalText = buildFinalText();
+  state.finalText = finalText;
+  state.inlineDiff = false;
+  setEditorText(finalQuill, finalText);
+  state.finalHtml = finalQuill.root.innerHTML;
+  finalQuill.enable(true);
+  updateInlineDiffButton();
+}
+
 function applyDiffSelections() {
-  elements.finalText.value = buildFinalText();
+  const finalText = buildFinalText();
+  state.finalText = finalText;
+  state.inlineDiff = false;
+  setEditorText(finalQuill, finalText);
+  state.finalHtml = finalQuill.root.innerHTML;
+  finalQuill.enable(true);
+  updateInlineDiffButton();
   setExportStatus('Applied selected changes.');
+}
+
+function updateInlineDiffButton() {
+  elements.toggleInlineDiff.textContent = state.inlineDiff ? 'Hide inline diff' : 'Show inline diff';
+}
+
+function toggleInlineDiff() {
+  if (!state.resumeText || !state.tailoredText) {
+    setExportStatus('Generate a tailored resume first.', 'error');
+    return;
+  }
+
+  if (!state.inlineDiff) {
+    state.inlineDiff = true;
+    state.finalText = getEditorText(finalQuill);
+    state.finalHtml = finalQuill.root.innerHTML;
+    const diffDelta = buildInlineDiffDelta(state.resumeText, state.tailoredText);
+    finalQuill.setContents(diffDelta);
+    finalQuill.enable(false);
+  } else {
+    state.inlineDiff = false;
+    finalQuill.enable(true);
+    setEditorHtml(finalQuill, state.finalHtml || textToHtml(state.finalText || state.tailoredText));
+  }
+
+  updateInlineDiffButton();
+}
+
+function initEditors() {
+  resumeQuill = new window.Quill('#resumeEditor', {
+    theme: 'snow',
+    placeholder: 'Extracted resume content appears here...',
+    modules: { toolbar: '#resumeToolbar' }
+  });
+
+  finalQuill = new window.Quill('#finalEditor', {
+    theme: 'snow',
+    placeholder: 'Final resume content...',
+    modules: { toolbar: '#finalToolbar' }
+  });
 }
 
 // --- UI wiring ---
 function attachListeners() {
-  elements.extractResume.addEventListener('click', handleExtractResume);
+  elements.extractOriginal.addEventListener('click', handleExtractOriginal);
+  elements.extractTailored.addEventListener('click', handleExtractTailored);
   elements.scrapeJob.addEventListener('click', scrapeCurrentTab);
   elements.deepScrape.addEventListener('click', deepScrapeExa);
   elements.generateResume.addEventListener('click', generateTailoredResume);
   elements.applyDiff.addEventListener('click', applyDiffSelections);
+  elements.toggleInlineDiff.addEventListener('click', toggleInlineDiff);
   elements.exportPdf.addEventListener('click', exportPdf);
   elements.copyText.addEventListener('click', copyFinalText);
   elements.openSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
 }
 
 attachListeners();
+initEditors();
+updateInlineDiffButton();
 prefillActiveTab();
